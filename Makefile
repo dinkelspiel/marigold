@@ -1,4 +1,4 @@
 run:
-	nasm -f elf64 program.asm -o program.o
+	nasm -f elf64 mg.asm -o program.o
 	gcc -no-pie program.o 
 	./a.out

@@ -3,13 +3,8 @@
 
 msg:	db		"Hello World!",0
 
-printme:
-		mov		rdi, msg
-		call	puts
-		mov		rax, 0
-		ret
-
 main:
-		call	printme	
+		mov		rdi, msg
+		call	puts	
 		mov		rax, 0
 		ret
