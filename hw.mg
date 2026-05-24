@@ -1,4 +1,4 @@
 main :: () {
-	puts("Hello World")	
-	return 
+  puts("Hello World")
+  return 
 }
