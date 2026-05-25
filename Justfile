@@ -14,3 +14,6 @@ asm:
 	nasm -f elf64 program.asm -o program.o
 	gcc -no-pie program.o 
 	./a.out
+
+format:
+	llvm-as mg.ll -o - | llvm-dis -o mg.ll -

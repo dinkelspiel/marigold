@@ -16,7 +16,10 @@ TokenKind :: enum {
 	Return,
 	For,
 	Range,
-	AssignInfer
+	AssignInfer,
+	Comma,
+	Plus,
+	Semicolon
 }
 
 TokenValue :: union {
@@ -81,6 +84,24 @@ lex :: proc(lexer: ^Lexer) -> (err: LexerError) {
 			lexer,
 			{kind = .Range, value = nil, col = lexer.current_col, row = lexer.current_row},
 		)
+	case ',':
+		pop_acc(lexer)
+		push_token(
+			lexer,
+			{kind = .Comma, value = nil, col = lexer.current_col, row = lexer.current_row},
+		)
+	case ';':
+		pop_acc(lexer)
+		push_token(
+			lexer,
+			{kind = .Semicolon, value = nil, col = lexer.current_col, row = lexer.current_row},
+		)
+	case '+':
+		pop_acc(lexer)
+		push_token(
+			lexer,
+			{kind = .Plus, value = nil, col = lexer.current_col, row = lexer.current_row},
+		)
 	case '(':
 		pop_acc(lexer)
 		push_token(
@@ -117,7 +138,7 @@ lex :: proc(lexer: ^Lexer) -> (err: LexerError) {
 				row = lexer.current_row,
 			},
 		)
-		lexer.current_col += len(value)
+		lexer.current_col += len(value) + 2
 	case ' ':
 		pop_acc(lexer)
 	case '\n':

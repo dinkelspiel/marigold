@@ -32,6 +32,7 @@ llvm_gen :: proc(nodes: []AstNode) {
 
 	strings.builder_init(&final)
 	strings.write_string(&final, "declare i32 @puts(ptr)\n")
+	strings.write_string(&final, "declare i32 @printf(ptr, ...)\n")
 	strings.write_string(&final, strings.to_string(backend.strings))
 	fmt.println("test", backend.out)
 	for i in backend.out {
@@ -46,47 +47,28 @@ llvm_func_dec :: proc(backend: ^X86Backend, node: AstFunctionDeclaration) {
 	builder: strings.Builder
 	strings.builder_init(&builder)
 	defer strings.builder_destroy(&builder)
-
-	label := llvm_do_code_block(backend, node.code_block.nodes)
 	
 	strings.write_string(&builder, "define void @")
 	strings.write_string(&builder, node.identifier)
 	strings.write_string(&builder, "() {\n")
-	strings.write_string(&builder, "call void @")
-	strings.write_string(&builder, label)
-	strings.write_string(&builder, "()\nret void\n}\n")
+	llvm_code_block(backend, &builder, node.code_block.nodes)
+	strings.write_string(&builder, "}\n")
 
 	out := backend.out
 	append(&out, strings.clone(strings.to_string(builder)))
 	backend.out = out
 }
 
-llvm_do_code_block_unmanaged :: proc(backend: ^X86Backend, nodes: []AstNode, builder: ^strings.Builder, insert_return := false) -> (label: string) {
-	label = random_alphanumeric_except_first(16)
-	strings.write_string(builder, "define void @")
-	strings.write_string(builder, label)
-	strings.write_string(builder, "() {\n")
-	llvm_code_block(backend, builder, nodes)
-	
-	if insert_return {
-		strings.write_string(builder, "ret void\n")
-	}
-
-	strings.write_string(builder, "}\n")
-	return label
-}
-
-llvm_do_code_block :: proc(backend: ^X86Backend, nodes: []AstNode) -> (label: string) {
+llvm_do_code_block :: proc(backend: ^X86Backend, nodes: []AstNode) {
 	builder: strings.Builder
 	strings.builder_init(&builder)
 	defer strings.builder_destroy(&builder)
 
-	label = llvm_do_code_block_unmanaged(backend, nodes, &builder)
+	llvm_code_block(backend, &builder, nodes)
 
 	out := backend.out
 	append(&out, strings.clone(strings.to_string(builder)))
 	backend.out = out
-	return label
 }
 
 llvm_code_block :: proc(backend: ^X86Backend, builder: ^strings.Builder, nodes: []AstNode) {
@@ -97,68 +79,100 @@ llvm_code_block :: proc(backend: ^X86Backend, builder: ^strings.Builder, nodes: 
 	case AstFunctionDeclaration:
 		panic("Can't declare function in codeblock")
 	case AstFunctionCall:
+		func_label := random_alphanumeric_except_first(16)
+		func_builder: strings.Builder
+		strings.builder_init(&func_builder)
+		defer strings.builder_destroy(&func_builder)
+
+		i := 0
+		for arg in n.arguments {
+			if i > 0 do strings.write_string(&func_builder, ", ")
+
+			i += 1
+			switch a in arg {
+				case string:
+					strings.write_string(&func_builder, "ptr @")
+					strings.write_string(&func_builder, llvm_get_string_label(backend, arg))
+				case int:
+					panic("int is unhandled for function arguments")
+				case AstIdentifier:
+					strings.write_string(builder, fmt.tprintf("%%{}.{} = load i32, ptr %%{}\n", func_label, i, a.identifier))
+					strings.write_string(&func_builder, fmt.tprintf("i32 %%{}.{}", func_label, i))
+			}
+		}
+		
 		strings.write_string(builder, "call i32 @")
 		strings.write_string(builder, n.identifier)
 		strings.write_string(builder, "(")
 		
-		for arg in n.arguments {
-			strings.write_string(builder, "ptr ")
-			switch a in arg {
-				case string: 
-					strings.write_string(builder, "@")
-					strings.write_string(builder, llvm_get_string_label(backend, arg))
-				case int:
-					panic("int is unhandled for function arguments")
-				case AstIdentifier:
-					strings.write_string(builder, "%")
-					strings.write_string(builder, a.identifier)
-			}
-		}
+		strings.write_string(builder, strings.to_string(func_builder))	
 		
 		strings.write_string(builder, ")\n")
 	case AstAssignVariable:
 		fmt.println("reached assign var")
-		
-		// TODO: Handle more than strings here
-		buf: [4]byte
-		strlen := strconv.write_int(buf[:], transmute(i64)len(n.value.(string)) + 1, 10)	
 
-		strings.write_string(builder, 
-			fmt.tprintf("%%{} = alloca [{} x i8]\nstore [{} x i8] c\"{}\\00\", ptr %%{}\n", n.identifier, strlen, strlen, n.value.(string), n.identifier))
-	case AstFor:
+		#partial switch value in n.value {
+			case string:
+				buf: [4]byte
+				strlen := strconv.write_int(buf[:], transmute(i64)len(n.value.(string)) + 1, 10)	
+
+				strings.write_string(builder, 
+					fmt.tprintf("%%{} = alloca [{} x i8]\nstore [{} x i8] c\"{}\\00\", ptr %%{}\n", n.identifier, strlen, strlen, value, n.identifier))
+			case int:
+				strings.write_string(builder, fmt.tprintf("%%{} = alloca i32\nstore i32 {}, ptr %%{}\n", n.identifier, value, n.identifier))
+		}
+
+			case AstFor:
 		for_builder: strings.Builder
 		strings.builder_init(&for_builder)
 		defer strings.builder_destroy(&for_builder)
-
-		label := llvm_do_code_block_unmanaged(backend, n.code_block.nodes, &for_builder, true)
 
 		for_loop_label := random_alphanumeric_except_first(16)
 
 		strings.write_string(
 			builder,
 			fmt.tprintf(
-				"%%i = alloca i32\n" +
-				"store i32 {}, ptr %%i\n" +
+				"%%{}.i = alloca i32\n" +
+				"store i32 {}, ptr %%{}.i\n" +
 				"br label %%{}_start\n" +
 				"{}_start:\n" +
-				"%%i.val = load i32, ptr %%i\n" +
-				"%%1 = icmp eq i32 %%i.val, {}\n" +
-				"br i1 %%1, label %%{}_exit, label %%{}\n" +
+				"%%{}.val = load i32, ptr %%{}.i\n" +
+				"%%{}.cmp = icmp eq i32 %%{}.val, {}\n" +
+				"br i1 %%{}.cmp, label %%{}_exit, label %%{}\n" +
 				"{}:\n" +
-				"%%i.old = load i32, ptr %%i\n" +
-				"%%i.new = add i32 %%i.old, 1\n" +
-				"store i32 %%i.new, ptr %%i\n" +
-				"call void @{}()\n" +
-				"br label %%{}_start\n" +
-				"{}_exit:\n",
+				"%%{}.old = load i32, ptr %%{}.i\n" +
+				"%%{}.new = add i32 %%{}.old, 1\n" +
+				"store i32 %%{}.new, ptr %%{}.i\n",
+				for_loop_label,
 				n.range_min,
+				for_loop_label,
+				for_loop_label,
+				for_loop_label,
+				for_loop_label,
+				for_loop_label,
 				for_loop_label,
 				for_loop_label,
 				n.range_max,
 				for_loop_label,
 				for_loop_label,
 				for_loop_label,
-				label,
+				for_loop_label,
+				for_loop_label,
+				for_loop_label,
+				for_loop_label,
+				for_loop_label,
+				for_loop_label,
+				for_loop_label
+			),
+		)
+
+		llvm_code_block(backend, builder, n.code_block.nodes)
+
+		strings.write_string(
+			builder,
+			fmt.tprintf(
+				"br label %%{}_start\n" +
+				"{}_exit:\n",
 				for_loop_label,
 				for_loop_label
 			),

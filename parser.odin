@@ -171,7 +171,13 @@ parse_block :: proc(
 			identifier := parser.current_token.value.(TokenValue).(string)
 			advance(parser)
 			advance(parser)
-			value := parser.current_token.value.(TokenValue).(string)
+			value: AstValue
+			switch n in parser.current_token.value.(TokenValue) {
+				case int:
+					value = n
+				case string:
+					value = n
+			}
 			advance(parser)
 
 			next_nodes := nodes
@@ -187,6 +193,8 @@ parse_block :: proc(
 		)
 	case .Return:
 		advance(parser)
+		_, err = advance_assert(parser, .Semicolon)
+		if err != nil do return nil, err
 
 		next_nodes := nodes
 		_, _ = append(&next_nodes, AstReturn{})
@@ -268,7 +276,12 @@ parse_function_call_args :: proc(
 	token: ^Token
 	token, err = advance(parser)
 	if err != nil do return nil, err
-	if token.kind == .ParenClose do return acc[:], nil
+	if token.kind == .ParenClose {
+		_, err = advance_assert(parser, .Semicolon)
+		if err != nil do return nil, err
+		return acc[:], nil
+	}
+	if token.kind == .Comma do token, err = advance(parser)
 
 	next := acc
 	
@@ -282,7 +295,7 @@ parse_function_call_args :: proc(
 	} else if token.kind == .Identifier {
 		append(&next, AstIdentifier { identifier = token.value.(TokenValue).(string) })  
 	} else {
-		return nil, error(.UnexpectedToken, token, "Expected string or int")
+		return nil, error(.UnexpectedToken, token, fmt.tprintf("Expected string or int", token))
 	}
 	return parse_function_call_args(parser, next)
 }
