@@ -98,6 +98,8 @@ llvm_code_block :: proc(backend: ^X86Backend, builder: ^strings.Builder, nodes: 
 				case AstIdentifier:
 					strings.write_string(builder, fmt.tprintf("%%{}.{} = load i32, ptr %%{}\n", func_label, i, a.identifier))
 					strings.write_string(&func_builder, fmt.tprintf("i32 %%{}.{}", func_label, i))
+				case AstAdd:
+					panic("Ast add unimplemented")
 			}
 		}
 		

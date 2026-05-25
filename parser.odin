@@ -56,7 +56,13 @@ AstIdentifier :: struct {
 AstValue :: union {
 	string,
 	int,
-	AstIdentifier
+	AstIdentifier,
+	AstAdd
+}
+
+AstAdd :: struct {
+	node_1: ^AstValue,
+	node_2: ^AstValue
 }
 
 AstNode :: union {
@@ -171,19 +177,14 @@ parse_block :: proc(
 			identifier := parser.current_token.value.(TokenValue).(string)
 			advance(parser)
 			advance(parser)
-			value: AstValue
-			switch n in parser.current_token.value.(TokenValue) {
-				case int:
-					value = n
-				case string:
-					value = n
-			}
-			advance(parser)
+		
+			value, value_err := parse_expression(parser)
+			if value_err != nil do return nil, value_err
 
 			next_nodes := nodes
 			_, _ = append(&next_nodes, AstAssignVariable {
 				identifier,
-				value
+				value.(AstValue)
 			})
 			return parse_block(parser, next_nodes)
 		} else do return nil, error(
@@ -241,6 +242,23 @@ parse_block :: proc(
 	}
 
 	panic("progressed to end of parse block")
+}
+
+parse_expression :: proc(parser: ^Parser) -> (value: Maybe(AstValue), err: Maybe(ParserError)) {
+	if parser.current_token.kind == .Semicolon do return value, nil
+	
+	if parser.current_token.value != nil {
+		switch n in parser.current_token.value.(TokenValue) {
+			case int:
+				value = n
+			case string:
+				value = n
+		}
+	} else {
+		return nil, error(.UnexpectedToken, parser.current_token, fmt.tprintf("invalid kind in expression found %v", parser.current_token.kind))
+	}
+	advance(parser)
+	return parse_expression(parser)
 }
 
 parse_function_call :: proc(
